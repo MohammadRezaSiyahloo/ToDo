@@ -6,6 +6,7 @@ import { TaskCard } from "@/components/tasks/task-card";
 import { TaskDetail } from "@/components/tasks/task-detail";
 import { Task, Tag } from "@/lib/types";
 import api from "@/lib/api";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -25,9 +26,13 @@ export default function TodayPage() {
 
   const handleToggle = async (id: number) => {
     try {
-      await api.patch(`/api/tasks/${id}/toggle`);
-      fetchTasks();
-    } catch {}
+      const { data: updated } = await api.patch<Task>(`/api/tasks/${id}/toggle`);
+      setTasks((current) => current.map((task) => task.id === id ? updated : task));
+      setSelectedTask((current) => current?.id === id ? updated : current);
+      await fetchTasks();
+    } catch {
+      toast.error("Could not update the task. Please try again.");
+    }
   };
 
   const handleTogglePin = async (id: number) => {

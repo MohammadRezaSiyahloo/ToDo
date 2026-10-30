@@ -17,7 +17,7 @@ interface TaskDetailProps {
   onEdit: (task: Task) => void;
   onDelete: (id: number) => void;
   onDuplicate: (id: number) => void;
-  onToggle: (id: number) => void;
+  onToggle: (id: number) => void | Promise<void>;
   onTogglePin: (id: number) => void;
   onRefresh: () => void;
 }
@@ -34,15 +34,15 @@ export function TaskDetail({ task, open, onClose, onEdit, onDelete, onDuplicate,
   const [subtasks, setSubtasks] = useState<Subtask[]>(task.subtasks || []);
   const [newSubtask, setNewSubtask] = useState("");
   const [localPinned, setLocalPinned] = useState(task.pinned);
-  const [localCompleted, setLocalCompleted] = useState(task.completed);
+  const localCompleted = task.completed;
+  const [completing, setCompleting] = useState(false);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [runningTimer, setRunningTimer] = useState<TimeEntry | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     setLocalPinned(task.pinned);
-    setLocalCompleted(task.completed);
-  }, [task.pinned, task.completed]);
+  }, [task.pinned]);
 
   const priority = priorityConfig[task.priority];
   const completedSubtasks = subtasks.filter(s => s.completed).length;
@@ -58,13 +58,7 @@ export function TaskDetail({ task, open, onClose, onEdit, onDelete, onDuplicate,
       api.get(`/api/time/${task.id}`).then(res => {
         const entries = res.data || [];
         setTimeEntries(entries);
-        // Only show running timer if it belongs to THIS task and is recent (within 1 hour)
-        const running = entries.find((e: TimeEntry) => {
-          if (e.ended_at) return false;
-          const started = new Date(e.started_at).getTime();
-          const now = Date.now();
-          return (now - started) < 60 * 60 * 1000; // within 1 hour
-        });
+        const running = entries.find((e: TimeEntry) => !e.ended_at);
         setRunningTimer(running || null);
         if (running) {
           // Parse the UTC timestamp and calculate elapsed
@@ -128,8 +122,13 @@ export function TaskDetail({ task, open, onClose, onEdit, onDelete, onDuplicate,
   };
 
   const handleToggle = async () => {
-    setLocalCompleted(!localCompleted);
-    onToggle(task.id);
+    if (completing) return;
+    setCompleting(true);
+    try {
+      await onToggle(task.id);
+    } finally {
+      setCompleting(false);
+    }
   };
 
   const addComment = async () => {
@@ -181,7 +180,10 @@ export function TaskDetail({ task, open, onClose, onEdit, onDelete, onDuplicate,
       >
         {/* Header */}
         <div className="flex items-start gap-3 p-6 pb-4">
-          <button onClick={handleToggle} className="mt-1 shrink-0">
+          <button type="button" onClick={handleToggle} disabled={completing}
+            aria-label={localCompleted ? "Mark task incomplete" : "Mark task complete"}
+            aria-pressed={localCompleted} aria-busy={completing}
+            className="mt-1 shrink-0 disabled:opacity-50">
             {localCompleted ? (
               <CheckCircle2 className="h-6 w-6 text-emerald-500" />
             ) : (

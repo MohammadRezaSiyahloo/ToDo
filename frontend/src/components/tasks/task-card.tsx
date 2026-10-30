@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { GripVertical, Pencil, Trash2, CheckCircle2, Circle, Clock, Tag as TagIcon, Folder, Pin, MessageSquare, ListChecks, Repeat } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DeadlineCountdown } from "./deadline-countdown";
@@ -10,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 interface TaskCardProps {
   task: Task;
-  onToggle: (id: number) => void;
+  onToggle: (id: number) => void | Promise<void>;
   onTogglePin: (id: number) => void;
   onEdit: (task: Task) => void;
   onDelete: (id: number) => void;
@@ -39,6 +40,22 @@ export function TaskCard({ task, onToggle, onTogglePin, onEdit, onDelete, onClic
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  };
+
+  const [completing, setCompleting] = useState(false);
+  const completionInFlight = useRef(false);
+
+  const handleCompletion = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (completionInFlight.current) return;
+    completionInFlight.current = true;
+    setCompleting(true);
+    try {
+      await onToggle(task.id);
+    } finally {
+      completionInFlight.current = false;
+      setCompleting(false);
+    }
   };
 
   const priority = priorityConfig[task.priority];
@@ -86,7 +103,16 @@ export function TaskCard({ task, onToggle, onTogglePin, onEdit, onDelete, onClic
             </div>
 
             {/* Checkbox */}
-            <button onClick={() => onToggle(task.id)} className="shrink-0">
+            <button
+              type="button"
+              aria-label={task.completed ? `Mark ${task.title} incomplete` : `Mark ${task.title} complete`}
+              aria-pressed={task.completed}
+              aria-busy={completing}
+              disabled={completing}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={handleCompletion}
+              className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full cursor-pointer disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-primary"
+            >
               {task.completed ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               ) : (

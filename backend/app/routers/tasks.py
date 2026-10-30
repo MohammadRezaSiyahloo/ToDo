@@ -1,18 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 import json
-import csv
-import io
 from app.database import get_db
 from app.models import Task, Subtask, Comment, User, Tag
 from app.schemas import (
     TaskCreate, TaskUpdate, TaskResponse, TaskReorderRequest,
     SubtaskCreate, SubtaskUpdate, SubtaskResponse,
-    CommentCreate, CommentResponse,
+    CommentCreate, CommentResponse, TaskImport,
 )
 from app.dependencies import get_current_user
 
@@ -21,31 +18,14 @@ from sqlalchemy import func
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
-def task_to_response(task: Task) -> dict:
-    return {
-        "id": task.id,
-        "title": task.title,
-        "description": task.description,
-        "completed": task.completed,
-        "pinned": task.pinned,
-        "status": task.status or "todo",
-        "priority": task.priority,
-        "deadline": task.deadline,
-        "tags": task.tags_list or [],
-        "subtasks": task.subtasks,
-        "comment_count": len(task.comments),
-        "sort_order": task.sort_order,
-        "recurring": task.recurring,
-        "recurring_until": task.recurring_until,
-        "created_at": task.created_at,
-        "updated_at": task.updated_at,
-    }
+from app.services.tasks import task_to_response, next_deadline
 
 
 # --- List & Create (no conflict with /{task_id}) ---
 
 @router.get("/", response_model=list[TaskResponse])
 def list_tasks(
+    tag_id: Optional[int] = None,
     priority: Optional[str] = None,
     completed: Optional[bool] = None,
     pinned: Optional[bool] = None,
@@ -56,6 +36,8 @@ def list_tasks(
 ):
     query = db.query(Task).filter(Task.user_id == current_user.id)
 
+    if tag_id is not None:
+        query = query.filter(Task.tags_list.any(Tag.id == tag_id))
     if priority is not None:
         query = query.filter(Task.priority == priority)
     if completed is not None:
@@ -68,7 +50,6 @@ def list_tasks(
         tomorrow = today_start + timedelta(days=1)
         week_ago = today_start - timedelta(days=7)
         query = query.filter(
-            Task.completed == False,
             Task.deadline != None,
             Task.deadline < tomorrow,
             Task.deadline >= week_ago,
@@ -79,7 +60,7 @@ def list_tasks(
             or_(
                 Task.title.ilike(search_term),
                 Task.description.ilike(search_term),
-                Task.tag.ilike(search_term),
+                Task.tags_list.any(Tag.name.ilike(search_term)),
             )
         )
 
@@ -100,6 +81,7 @@ def create_task(
         description=task_data.description,
         priority=task_data.priority,
         status=task_data.status,
+        completed=task_data.status == "done",
         deadline=task_data.deadline,
         pinned=task_data.pinned,
         recurring=task_data.recurring,
@@ -162,6 +144,9 @@ def export_tasks_json(
             "pinned": t.pinned,
             "deadline": t.deadline.isoformat() if t.deadline else None,
             "tags": [tag.name for tag in t.tags_list],
+            "status": t.status,
+            "recurring": t.recurring,
+            "recurring_until": t.recurring_until.isoformat() if t.recurring_until else None,
         }
         for t in tasks
     ]
@@ -170,26 +155,29 @@ def export_tasks_json(
 
 @router.post("/import/json")
 def import_tasks_json(
-    tasks_data: list[dict],
+    tasks_data: list[TaskImport],
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    imported = 0
+    existing_tags = {tag.name: tag for tag in db.query(Tag).filter(Tag.user_id == current_user.id)}
     for item in tasks_data:
+        names = list(dict.fromkeys(item.tags + ([item.tag] if item.tag else [])))
+        tags = []
+        for name in names:
+            if name not in existing_tags:
+                existing_tags[name] = Tag(user_id=current_user.id, name=name)
+                db.add(existing_tags[name])
+            tags.append(existing_tags[name])
         task = Task(
-            user_id=current_user.id,
-            title=item.get("title", "Untitled"),
-            description=item.get("description"),
-            priority=item.get("priority", "medium"),
-            completed=item.get("completed", False),
-            deadline=datetime.fromisoformat(item["deadline"]) if item.get("deadline") else None,
-            tag=item.get("tag"),
-            pinned=item.get("pinned", False),
+            user_id=current_user.id, title=item.title, description=item.description,
+            priority=item.priority, completed=item.completed,
+            status="done" if item.completed else ("todo" if item.status == "done" else item.status),
+            deadline=item.deadline, pinned=item.pinned, tags_list=tags,
+            recurring=item.recurring, recurring_until=item.recurring_until,
         )
         db.add(task)
-        imported += 1
     db.commit()
-    return {"imported": imported}
+    return {"imported": len(tasks_data)}
 
 
 # --- /{task_id} routes ---
@@ -255,6 +243,11 @@ def update_task(
         tags = db.query(Tag).filter(Tag.id.in_(tag_ids), Tag.user_id == current_user.id).all()
         task.tags_list = tags
 
+    if "status" in update_data:
+        update_data["completed"] = update_data["status"] == "done"
+    elif "completed" in update_data:
+        update_data["status"] = "done" if update_data["completed"] else "todo"
+
     for field, value in update_data.items():
         setattr(task, field, value)
 
@@ -291,31 +284,16 @@ def toggle_task(
 
     # Recurring: create next instance on completion
     if task.completed and task.recurring and task.recurring_until and task.deadline:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         if now < task.recurring_until:
-            if task.recurring == "daily":
-                next_deadline = task.deadline + timedelta(days=1)
-            elif task.recurring == "weekly":
-                next_deadline = task.deadline + timedelta(weeks=1)
-            elif task.recurring == "monthly":
-                next_deadline = task.deadline + timedelta(days=30)
-            else:
-                next_deadline = None
-
-            if next_deadline and next_deadline <= task.recurring_until:
-                new_task = Task(
-                    user_id=task.user_id,
-                    title=task.title,
-                    description=task.description,
-                    priority=task.priority,
-                    deadline=next_deadline,
-                    tag=task.tag,
-                    pinned=task.pinned,
-                    recurring=task.recurring,
-                    recurring_until=task.recurring_until,
-                    sort_order=task.sort_order,
-                )
-                db.add(new_task)
+            following = next_deadline(task.deadline, task.recurring)
+            if following and following <= task.recurring_until:
+                db.add(Task(
+                    user_id=task.user_id, title=task.title, description=task.description,
+                    priority=task.priority, deadline=following, tags_list=list(task.tags_list),
+                    pinned=task.pinned, recurring=task.recurring,
+                    recurring_until=task.recurring_until, sort_order=task.sort_order,
+                ))
 
     db.commit()
     db.refresh(task)
@@ -372,6 +350,11 @@ def update_subtask(
         raise HTTPException(status_code=404, detail="Subtask not found")
 
     update_data = subtask_data.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        update_data["completed"] = update_data["status"] == "done"
+    elif "completed" in update_data:
+        update_data["status"] = "done" if update_data["completed"] else "todo"
+
     for field, value in update_data.items():
         setattr(subtask, field, value)
     db.commit()

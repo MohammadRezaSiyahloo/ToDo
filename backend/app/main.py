@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from contextlib import asynccontextmanager
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from app.database import engine, Base
@@ -14,15 +15,19 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
 
-app = FastAPI(title="ToDoApp API", version="1.0.0")
+
+app = FastAPI(title="ToDoApp API", version="1.0.0", lifespan=lifespan)
 
 
 # Global exception handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.warning(f"Validation error: {exc.errors()}")
+    logger.warning("Validation failed for %s", request.url.path)
     return JSONResponse(
         status_code=422,
         content={
@@ -86,7 +91,7 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/":
         return await call_next(request)
     
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     
     # Clean old entries
@@ -112,12 +117,9 @@ async def rate_limit_middleware(request: Request, call_next):
 # HTTPS redirect middleware (only in production)
 @app.middleware("http")
 async def https_redirect_middleware(request: Request, call_next):
-    if settings.FORCE_HTTPS and request.headers.get("x-forwarded-proto") == "http":
+    if settings.FORCE_HTTPS and request.url.scheme == "http":
         url = request.url.replace(scheme="https")
-        return JSONResponse(
-            status_code=307,
-            headers={"Location": str(url)}
-        )
+        return RedirectResponse(str(url), status_code=307)
     return await call_next(request)
 
 

@@ -4,20 +4,21 @@ echo   ToDoApp - Starting Services
 echo ========================================
 echo.
 
-:: Kill any existing processes on ports 3000 and 8000
-echo Stopping existing processes...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
-
-:: Recreate database to clear stale timers
-echo Resetting database...
-cd /d "%~dp0backend"
-venv\Scripts\python.exe -c "from app.database import engine, Base; from app.models import *; Base.metadata.create_all(bind=engine); print('Database ready')"
 cd /d "%~dp0"
+if not exist "backend\venv\Scripts\python.exe" (
+  echo Set up backend\venv and install requirements first. See README.md.
+  pause
+  exit /b 1
+)
+if not exist "backend\.env" (
+  echo Create backend\.env using backend\.env.example first.
+  pause
+  exit /b 1
+)
 
 :: Start backend
 echo Starting backend on port 8000...
-start "ToDoApp Backend" /D "%~dp0backend" cmd /c "venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "ToDoApp Backend" /D "%~dp0backend" cmd /c "venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
 
 :: Wait for backend to start
 timeout /t 3 /nobreak >nul
@@ -44,6 +45,4 @@ pause >nul
 echo Stopping services...
 taskkill /FI "WindowTitle eq ToDoApp Backend*" /F >nul 2>&1
 taskkill /FI "WindowTitle eq ToDoApp Frontend*" /F >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :3000 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr :8000 ^| findstr LISTENING') do taskkill /F /PID %%a >nul 2>&1
 echo Done!

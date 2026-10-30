@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Tag, Task, Subtask, Comment } from "@/lib/types";
+import { Tag, Task, Subtask, Comment, TaskPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
 
@@ -38,7 +38,7 @@ type TaskFormData = z.infer<typeof taskSchema>;
 interface TaskFormProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: TaskPayload) => void;
   task?: Task | null;
   tags: Tag[];
   prefilledDeadline?: string;
@@ -110,18 +110,17 @@ export function TaskForm({ open, onClose, onSubmit, task, tags, prefilledDeadlin
   }, [task, reset, open, prefilledDeadline]);
 
   const handleFormSubmit = async (data: TaskFormData) => {
-    const payload: any = {
+    const payload: TaskPayload = {
       title: data.title,
       description: data.description || undefined,
       priority: data.priority,
       tag_ids: selectedTagIds,
-      tag: data.tag || undefined,
       pinned: !!data.pinned,
-      status: "todo",
+      status: task?.status || "todo",
+      deadline: data.deadline ? new Date(data.deadline).toISOString() : null,
+      recurring: data.recurring || null,
+      recurring_until: data.recurring_until ? new Date(data.recurring_until).toISOString() : null,
     };
-    if (data.deadline) payload.deadline = new Date(data.deadline).toISOString();
-    if (data.recurring) payload.recurring = data.recurring;
-    if (data.recurring_until) payload.recurring_until = new Date(data.recurring_until).toISOString();
     onSubmit(payload);
     onClose();
   };

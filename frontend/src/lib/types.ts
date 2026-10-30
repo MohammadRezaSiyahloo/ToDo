@@ -72,3 +72,15 @@ export interface Template {
   priority: "low" | "medium" | "high";
   created_at: string;
 }
+
+export interface TaskPayload {
+  title: string;
+  description?: string | null;
+  priority: Task["priority"];
+  tag_ids: number[];
+  pinned: boolean;
+  status: Task["status"];
+  deadline: string | null;
+  recurring: string | null;
+  recurring_until: string | null;
+}

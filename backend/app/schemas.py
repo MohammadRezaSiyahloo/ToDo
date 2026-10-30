@@ -1,6 +1,16 @@
-from pydantic import BaseModel
-from datetime import datetime
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from datetime import datetime, timezone
+from typing import Optional, Literal
+
+
+class UTCInput(BaseModel):
+    @field_validator("deadline", "recurring_until", "started_at", "ended_at", mode="after", check_fields=False)
+    @classmethod
+    def normalize_datetime(cls, value):
+        # SQLite stores timezone-naive UTC; normalize offsets before storage.
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
 
 
 # Auth schemas
@@ -8,6 +18,13 @@ class UserCreate(BaseModel):
     email: str
     username: str
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_length(cls, value):
+        if not 8 <= len(value.encode("utf-8")) <= 72:
+            raise ValueError("Password must contain 8 to 72 UTF-8 bytes")
+        return value
 
 
 class UserLogin(BaseModel):
@@ -21,8 +38,7 @@ class UserResponse(BaseModel):
     username: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
@@ -47,8 +63,7 @@ class TagResponse(BaseModel):
     color: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Subtask schemas
@@ -68,8 +83,7 @@ class SubtaskResponse(BaseModel):
     completed: bool
     sort_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Comment schemas
@@ -83,34 +97,41 @@ class CommentResponse(BaseModel):
     user_id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Task schemas
-class TaskCreate(BaseModel):
+class TaskCreate(UTCInput):
     title: str
     description: Optional[str] = None
     tag_ids: list[int] = []
-    priority: str = "medium"
-    status: str = "todo"
+    priority: Literal["low", "medium", "high"] = "medium"
+    status: Literal["todo", "in_progress", "done"] = "todo"
     deadline: Optional[datetime] = None
     pinned: bool = False
-    recurring: Optional[str] = None
+    recurring: Optional[Literal["daily", "weekly", "monthly"]] = None
     recurring_until: Optional[datetime] = None
 
 
-class TaskUpdate(BaseModel):
+class TaskUpdate(UTCInput):
     title: Optional[str] = None
     description: Optional[str] = None
     tag_ids: Optional[list[int]] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["low", "medium", "high"]] = None
+    status: Optional[Literal["todo", "in_progress", "done"]] = None
     completed: Optional[bool] = None
     deadline: Optional[datetime] = None
     pinned: Optional[bool] = None
-    recurring: Optional[str] = None
+    recurring: Optional[Literal["daily", "weekly", "monthly"]] = None
     recurring_until: Optional[datetime] = None
+
+
+    @field_validator("title", "priority", "status", "completed", "pinned")
+    @classmethod
+    def non_nullable_fields(cls, value):
+        if value is None:
+            raise ValueError("This field cannot be null")
+        return value
 
 
 class TaskResponse(BaseModel):
@@ -131,8 +152,7 @@ class TaskResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskReorder(BaseModel):
@@ -170,10 +190,17 @@ class TimeEntryCreate(BaseModel):
     note: Optional[str] = None
 
 
-class TimeEntryLog(BaseModel):
+class TimeEntryLog(UTCInput):
     started_at: datetime
     ended_at: datetime
     note: Optional[str] = None
+
+
+    @model_validator(mode="after")
+    def ordered_interval(self):
+        if self.ended_at <= self.started_at:
+            raise ValueError("ended_at must be after started_at")
+        return self
 
 
 class TimeEntryResponse(BaseModel):
@@ -185,8 +212,7 @@ class TimeEntryResponse(BaseModel):
     note: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Template schemas
@@ -194,14 +220,14 @@ class TemplateCreate(BaseModel):
     name: str
     title: str
     description: Optional[str] = None
-    priority: str = "medium"
+    priority: Literal["low", "medium", "high"] = "medium"
 
 
 class TemplateUpdate(BaseModel):
     name: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    priority: Optional[str] = None
+    priority: Optional[Literal["low", "medium", "high"]] = None
 
 
 class TemplateResponse(BaseModel):
@@ -212,5 +238,10 @@ class TemplateResponse(BaseModel):
     priority: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TaskImport(TaskCreate):
+    completed: bool = False
+    tags: list[str] = []
+    tag: Optional[str] = None  # Accept legacy exports.

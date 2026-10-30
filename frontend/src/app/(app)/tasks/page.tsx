@@ -11,8 +11,9 @@ import { GanttView } from "@/components/tasks/gantt-view";
 import { TaskForm } from "@/components/tasks/task-form";
 import { TaskDetail } from "@/components/tasks/task-detail";
 import { TemplateForm } from "@/components/tasks/template-form";
-import { Task, Tag, Template } from "@/lib/types";
+import { Task, Tag, Template, TaskPayload } from "@/lib/types";
 import api from "@/lib/api";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -139,10 +140,12 @@ export default function TasksPage() {
 
   const handleToggle = async (id: number) => {
     try {
-      await api.patch(`/api/tasks/${id}/toggle`);
-      fetchTasks();
-    } catch (err) {
-      console.error("Failed to toggle task", err);
+      const { data: updated } = await api.patch<Task>(`/api/tasks/${id}/toggle`);
+      setTasks((current) => current.map((task) => task.id === id ? updated : task));
+      setSelectedTask((current) => current?.id === id ? updated : current);
+      await fetchTasks();
+    } catch {
+      toast.error("Could not update the task. Please try again.");
     }
   };
 
@@ -171,7 +174,7 @@ export default function TasksPage() {
     setFormOpen(true);
   };
 
-  const handleSubmit = async (data: any) => {
+  const handleSubmit = async (data: TaskPayload) => {
     try {
       if (editingTask) {
         await api.put(`/api/tasks/${editingTask.id}`, data);

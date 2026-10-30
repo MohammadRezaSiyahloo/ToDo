@@ -1,137 +1,133 @@
 # ToDoApp
 
-A modern task management application with neumorphic UI design.
+A personal task manager with a soft neumorphic interface, four task views, subtasks, comments, and built-in time tracking. Built with Next.js and FastAPI.
+
+## App previews
+
+Three images show the app: the combined task displays, Dashboard, and Today. These promotional illustrations follow the real screenshots and use original sample tasks.
+
+### List, Board, Calendar, and Timeline
+
+![List, Board, Calendar, and Timeline in one combined image](docs/images/views-banner.png)
+
+### Dashboard
+
+![Dashboard with task totals, weekly completion, and priorities](docs/images/dashboard-banner.png)
+
+### Today
+
+![Today page with daily tasks and completion progress](docs/images/today-banner.png)
 
 ## Features
 
-- **Task Management** — Create, edit, delete, pin, duplicate tasks
-- **Tags** — Organize tasks with color-coded tags (many-to-many)
-- **Subtasks** — Break tasks into smaller items with progress tracking
-- **Comments** — Add notes to tasks
-- **Time Tracking** — Start/stop timer on tasks, log time manually
-- **Templates** — Save task presets for quick creation
-- **Recurring Tasks** — Daily/weekly/monthly auto-renewal
-- **Priority System** — Low/Medium/High with color coding
-- **Multiple Views** — List, Kanban Board, Calendar, Gantt, Today
-- **Search & Filters** — Search by text, filter by priority/status/tag
-- **Bulk Select** — Select multiple tasks for batch actions
-- **Drag & Drop** — Reorder tasks in list and kanban views
-- **Import/Export** — JSON export/import for backup
-- **Keyboard Shortcuts** — N (new), / (search), ? (help)
-- **Dark Mode** — Light/Dark/System theme toggle
-- **Responsive** — Mobile-friendly with collapsible sidebar
+- **Organize:** color-coded tags, priorities, pins, search, status filters, and bulk selection.
+- **Plan:** switch between a task list, Kanban board, monthly calendar, and deadline timeline.
+- **Work through the details:** add subtasks and comments, duplicate tasks, and start or stop a task timer.
+- **Repeat:** completing a recurring task can create its next daily, weekly, or monthly instance up to an end date.
+- **Review:** a Today page, summary counts, weekly completion chart, and priority breakdown.
+- **Personalize:** light, dark, and system themes; collapsible tag sidebar; keyboard shortcuts.
+- **Transfer:** JSON task export/import. Task templates and manual time logging are also available through the API.
 
-## Tech Stack
+## Run locally
 
-**Frontend:** Next.js 16, TypeScript, Tailwind CSS, shadcn/ui, @dnd-kit, Recharts
+Use Python 3.12+ and Node.js 24 (version 24.15 or later). The component test dependencies require this newer Node.js version.
 
-**Backend:** FastAPI, SQLAlchemy, SQLite, JWT auth (python-jose, bcrypt)
+### 1. Start the API
 
-## Getting Started
-
-### Quick Start (Windows)
-
-```bash
-# Double-click run.bat or run from terminal:
-run.bat
-```
-
-### Manual Start
-
-**Backend:**
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate   # Windows
+# macOS / Linux
+source venv/bin/activate
+# Windows PowerShell: .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
 ```
 
-**Frontend:**
+Copy `backend/.env.example` to `backend/.env`. Generate a key and replace the example `SECRET_KEY`:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+From `backend/`, run:
+
+```bash
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The API creates missing tables on startup. It does not migrate an existing database schema.
+
+### 2. Start the frontend
+
+In another terminal:
+
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-**Requires Node.js >= 20**
+Open <http://localhost:3000> and create an account. API documentation is at <http://localhost:8000/docs>.
 
-## Project Structure
+After completing setup, Windows users can launch both services with `run.bat`. The launcher does not install dependencies or forcibly free occupied ports.
 
-```
-ToDoApp/
-├── backend/
-│   └── app/
-│       ├── main.py          # FastAPI app + CORS
-│       ├── config.py        # Settings
-│       ├── database.py      # SQLAlchemy setup
-│       ├── models.py        # User, Tag, Task, Subtask, Comment, TimeEntry, Template
-│       ├── schemas.py       # Pydantic schemas
-│       ├── auth.py          # JWT + bcrypt
-│       ├── dependencies.py  # Auth dependencies
-│       └── routers/         # API route handlers
-│
-├── frontend/
-│   └── src/
-│       ├── app/             # Next.js App Router pages
-│       ├── components/      # React components
-│       ├── hooks/           # Custom hooks
-│       └── lib/             # API client, types, utils
-│
-└── run.bat                  # One-click startup script
-```
+### Configuration
 
-## API Documentation
+| Variable | Location | Purpose |
+| --- | --- | --- |
+| `SECRET_KEY` | `backend/.env` | Required signing secret, at least 32 characters |
+| `DATABASE_URL` | `backend/.env` | Defaults to `sqlite:///./todoapp.db` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `backend/.env` | Token lifetime, default 1440 minutes |
+| `CORS_ORIGINS` | `backend/.env` | JSON array of permitted frontend origins |
+| `FORCE_HTTPS` | `backend/.env` | Redirect HTTP requests to HTTPS; default `false` |
+| `NEXT_PUBLIC_API_URL` | `frontend/.env.local` | API URL; defaults to `http://localhost:8000` |
 
-Interactive API docs available at: http://localhost:8000/docs
+The frontend API URL is embedded at build time. A deployment change requires rebuilding the frontend. PostgreSQL deployments also need a matching database driver; none is bundled.
 
-## Production Deployment
+## Architecture
 
-### Environment Variables
+| Path | Responsibility |
+| --- | --- |
+| `backend/app/main.py` | App lifespan, middleware, errors, and router registration |
+| `backend/app/config.py`, `database.py` | Environment settings and database sessions |
+| `backend/app/models.py`, `schemas.py` | SQLAlchemy models and request/response validation |
+| `backend/app/services/tasks.py` | Task serialization and recurring deadline calculation |
+| `backend/app/routers/` | Account, task, tag, timer, template, and dashboard endpoints |
+| `frontend/src/app/` | Next.js routes and page state |
+| `frontend/src/components/` | Task views, forms, navigation, charts, and UI primitives |
+| `frontend/src/hooks/use-auth.tsx` | Account session state |
+| `frontend/src/lib/` | API client, shared types, and utilities |
 
-Create a `.env` file in `backend/` with:
+The browser calls the FastAPI service directly. Requests carry a bearer token; database queries scope task data to the authenticated account. SQLite is the default local database.
 
-```env
-SECRET_KEY=<generate-a-strong-random-key>
-DATABASE_URL=postgresql://user:password@localhost:5432/todoapp
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-CORS_ORIGINS=["https://yourdomain.com"]
-FORCE_HTTPS=true
+## Checks
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest tests -q
 ```
 
-### Hardcoded Values to Replace
+```bash
+cd frontend
+npm test
+npx tsc --noEmit
+npm run lint
+npm run build
+```
 
-| File | Value | Production Action |
-|------|-------|-------------------|
-| `backend/.env` | `SECRET_KEY=your-secret-key-change-in-production` | Generate random 32+ char secret |
-| `backend/.env` | `DATABASE_URL=sqlite:///./todoapp.db` | Use PostgreSQL connection string |
-| `backend/app/config.py` | Fallback `SECRET_KEY` default | Remove default, require env var |
-| `backend/app/main.py` | `CORS_ORIGINS` default `localhost:3000` | Set via env var |
-| `frontend/src/lib/api.ts` | `baseURL: "http://localhost:8000"` | Use production API URL with HTTPS |
+The maintenance review passed 17 backend regression tests, three completion-control component tests, and TypeScript checking. Frontend lint still reports existing React hook/compiler and unused-code issues. Production builds could not complete in the review environment because Node reported `ENOENT: uv_resident_set_memory`; a browser walkthrough and production build still need verification. See [review notes](docs/MAINTENANCE.md).
 
-### Security Features
+## Current boundaries
 
-- **Rate Limiting** — 100 requests/minute per IP (configurable in `main.py`)
-- **HTTPS Redirect** — Set `FORCE_HTTPS=true` in `.env` to enforce HTTPS
-- **CORS** — Restrict origins via `CORS_ORIGINS` env var
-- **JWT Auth** — Tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES`
+- JSON transfer includes task fields and tag names. It does not include account data, comments, subtasks, timer history, or original tag colors.
+- The timeline shows deadline markers, not task durations or dependencies.
+- The Today view includes tasks due today and overdue tasks from the preceding seven days, using UTC boundaries.
+- Weekly completion groups completed tasks by their latest update timestamp; it is not a completion event log.
+- Template endpoints and a manual time-log endpoint exist; their full workflows are not exposed in the current task page.
+- Authentication uses localStorage bearer tokens. Rate limiting is per process and needs a shared implementation for multi-worker deployments.
+- Existing deployments need a migration plan, HTTPS, appropriate proxy trust, and backup configuration. No Alembic migration history is included.
 
-### Database Migration (SQLite → PostgreSQL)
+## Banner assets
 
-1. Install PostgreSQL and create database
-2. Update `DATABASE_URL` in `.env`
-3. Run `alembic upgrade head` (if using Alembic) or let SQLAlchemy create tables
-4. Export data from SQLite: `sqlite3 todoapp.db .dump > backup.sql`
-5. Import to PostgreSQL: `psql todoapp < backup.sql`
-
-### Deployment Checklist
-
-- [ ] Generate strong `SECRET_KEY` (e.g., `openssl rand -hex 32`)
-- [ ] Switch to PostgreSQL
-- [ ] Set `FORCE_HTTPS=true`
-- [ ] Configure `CORS_ORIGINS` with production domain
-- [ ] Update frontend `baseURL` to HTTPS API endpoint
-- [ ] Set up reverse proxy (nginx/Caddy) with SSL certificate
-- [ ] Configure firewall to only allow ports 80/443
-- [ ] Set up automated backups for PostgreSQL
-- [ ] Monitor rate limiting logs for abuse
+The four task displays share one **3840 × 2160** RGB PNG banner. Today and Dashboard each have a separate **1600 × 900** banner. `docs/images/social-preview.png` is **1280 × 640**, suitable for the repository social preview setting. The README references each feature banner once. Design notes and generation prompts are in [BANNERS.md](docs/BANNERS.md).
